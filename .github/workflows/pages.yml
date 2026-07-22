@@ -55,6 +55,24 @@ jobs:
             mv /tmp/site-root _site
           fi
 
+          # Correct the initialization order in the packaged JavaScript. The
+          # selectors must exist before the asynchronous image loader starts.
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("_site/app.js")
+          if path.exists():
+              source = path.read_text(encoding="utf-8")
+              old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
+              new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
+              if old in source:
+                  path.write_text(source.replace(old, new, 1), encoding="utf-8")
+                  print("Corrected app.js initialization order")
+              elif not source.startswith("const $="):
+                  raise SystemExit("Unexpected app.js structure; refusing to deploy")
+          PY
+
+          node --check _site/app.js
           touch _site/.nojekyll
           echo "Prepared $(find _site -type f | wc -l) website files"
 
