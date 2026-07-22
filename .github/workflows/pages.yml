@@ -1,10 +1,114 @@
 name: Publish birthday site
 
 on:
+  push:
+    branches: ["main"]
+    paths:
+      - ".github/workflows/pages.yml"
+      - "payload-fullres/**"
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
 jobs:
-  paused:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Deployment is temporarily paused while the high-quality site package is uploaded."
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify and rebuild full-resolution website
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "2de3740ab04b8e6e66f3ac47277bc177290b69b07c4a020aa7977e95cf143e5c  payload-fullres/part00" | sha256sum -c -
+          echo "16c6a8e6d80ea53a3b98359f8a8330e40c1706e2e14c5e9a347c5585a41e8c3f  payload-fullres/part01" | sha256sum -c -
+          echo "5194d1770f4eb4d04651a545d9b90f657e6b094b423bd744ae25a5b966c3b849  payload-fullres/part02" | sha256sum -c -
+          echo "ba2d86ac6fe18707ea8471f1643926c0e4705d0e061eb4c30a8027ccedd76028  payload-fullres/part03" | sha256sum -c -
+          echo "30c4774f22056a99ce76ea4fe932f92e8427fb92ba124acedbdacb8b20e9ef13  payload-fullres/part04" | sha256sum -c -
+          echo "ebb99e4275f9db9d991c30a1f2ea552bd75ba586ce0fea22b246d160b772aa96  payload-fullres/part05" | sha256sum -c -
+
+          cat payload-fullres/part00 payload-fullres/part01 payload-fullres/part02 payload-fullres/part03 payload-fullres/part04 payload-fullres/part05 \
+            | tr -d '\r\n\t ' \
+            | base64 --decode > /tmp/site.tar.gz
+
+          echo "08e3c76f56999cdf18a9ec53d4d0d5ead25616277a26f42d0fc5c1f6acd770f2  /tmp/site.tar.gz" | sha256sum -c -
+          gzip -t /tmp/site.tar.gz
+          mkdir -p _site
+          tar -xzf /tmp/site.tar.gz -C _site
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          index = Path('_site/index.html')
+          styles = Path('_site/styles.css')
+          app = Path('_site/app.js')
+
+          if not index.exists() or not styles.exists() or not app.exists():
+              raise SystemExit('Required website files are missing')
+
+          html = index.read_text(encoding='utf-8')
+          for incorrect in ('Melanie', 'Melanié'):
+              html = html.replace(incorrect, 'Mélanie')
+          html = html.replace('?v=20260722-full', '?v=20260722-full-final')
+          index.write_text(html, encoding='utf-8')
+
+          css = styles.read_text(encoding='utf-8')
+          css = css.replace("assets/mirror-home.png", "assets/mirror-home-full.webp?v=20260722-full-final")
+          css += "\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n"
+          styles.write_text(css, encoding='utf-8')
+
+          source = app.read_text(encoding='utf-8')
+          old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
+          new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
+          if old in source:
+              app.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          required = {
+              'assets/mirror-home-full.webp': 170516,
+              'assets/mirror-away-full.webp': 192868,
+              'assets/kit-home-full.webp': 137040,
+              'assets/kit-away-full.webp': 134674,
+              'assets/champions-badge-full.webp': 124398,
+          }
+          for relative, expected_size in required.items():
+              path = Path('_site') / relative
+              if not path.exists():
+                  raise SystemExit(f'Missing image: {relative}')
+              if path.stat().st_size != expected_size:
+                  raise SystemExit(f'Wrong file size for {relative}: {path.stat().st_size}')
+          PY
+
+          node --check _site/app.js
+          grep -q 'Mélanie' _site/index.html
+          grep -q 'mirror-home-full.webp' _site/styles.css
+          if grep -q 'assets/mirror-home.png' _site/styles.css; then
+            echo 'The obsolete hero image is still referenced'
+            exit 1
+          fi
+          touch _site/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload website
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
