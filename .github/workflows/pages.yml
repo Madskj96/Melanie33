@@ -27,47 +27,130 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Decode website package
+      - name: Decode complete website package
+        shell: bash
         run: |
-          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 | tr -d '\r\n\t ' | base64 --decode > /tmp/site.tar.gz
-
-      - name: Validate website package
-        run: gzip -t /tmp/site.tar.gz
+          set -euo pipefail
+          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 payload/part06 payload/part07 payload/part08 \
+            | tr -d '\r\n\t ' \
+            | base64 --decode > /tmp/site.tar.gz
+          gzip -t /tmp/site.tar.gz
 
       - name: Extract website
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p _site
           tar -xzf /tmp/site.tar.gz -C _site
           test -f _site/index.html
           test -f _site/styles.css
           test -f _site/app.js
 
-      - name: Apply final corrections
+      - name: Install exact original photographs
         shell: bash
         run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          import shutil
+
           root = Path('_site')
-          index = root / 'index.html'
+          assets = root / 'assets'
+          original_dir = assets / 'original'
+          original_dir.mkdir(parents=True, exist_ok=True)
+
+          expected = {
+              'mirror-home.jpg': (406023, (1086, 1448)),
+              'mirror-away.jpg': (446022, (1086, 1448)),
+              'kit-home.jpg': (354461, (1086, 1448)),
+              'kit-away.jpg': (355122, (1086, 1448)),
+              'champions-badge.jpg': (883741, (1125, 1393)),
+          }
+
+          def jpeg_dimensions(path: Path):
+              data = path.read_bytes()
+              if data[:2] != b'\xff\xd8':
+                  raise ValueError(f'{path} is not a JPEG')
+              i = 2
+              while i + 9 < len(data):
+                  if data[i] != 0xFF:
+                      i += 1
+                      continue
+                  marker = data[i + 1]
+                  i += 2
+                  if marker in (0xD8, 0xD9):
+                      continue
+                  if i + 2 > len(data):
+                      break
+                  length = int.from_bytes(data[i:i+2], 'big')
+                  if marker in {0xC0,0xC1,0xC2,0xC3,0xC5,0xC6,0xC7,0xC9,0xCA,0xCB,0xCD,0xCE,0xCF}:
+                      height = int.from_bytes(data[i+3:i+5], 'big')
+                      width = int.from_bytes(data[i+5:i+7], 'big')
+                      return width, height
+                  i += length
+              raise ValueError(f'Could not read JPEG dimensions for {path}')
+
+          all_files = [p for p in root.rglob('*') if p.is_file()]
+          installed = {}
+          for target, (size, dimensions) in expected.items():
+              matches = [p for p in all_files if p.stat().st_size == size and p.read_bytes()[:2] == b'\xff\xd8']
+              if len(matches) != 1:
+                  raise SystemExit(f'Expected exactly one original source for {target}; found {matches}')
+              source = matches[0]
+              actual_dimensions = jpeg_dimensions(source)
+              if actual_dimensions != dimensions:
+                  raise SystemExit(f'Wrong dimensions for {source}: {actual_dimensions}; expected {dimensions}')
+              destination = original_dir / target
+              shutil.copyfile(source, destination)
+              if destination.stat().st_size != size:
+                  raise SystemExit(f'Byte size changed while copying {target}')
+              installed[target] = destination
+
+          replacements = {
+              'assets/mirror-home.png': 'assets/original/mirror-home.jpg?v=original-20260722-v4',
+              'assets/mirror-away.png': 'assets/original/mirror-away.jpg?v=original-20260722-v4',
+              'assets/kit-home.png': 'assets/original/kit-home.jpg?v=original-20260722-v4',
+              'assets/kit-away.png': 'assets/original/kit-away.jpg?v=original-20260722-v4',
+              'assets/champions-badge.jpg': 'assets/original/champions-badge.jpg?v=original-20260722-v4',
+              'assets/mirror-home-full.webp?v=20260722-full': 'assets/original/mirror-home.jpg?v=original-20260722-v4',
+              'assets/mirror-away-full.webp?v=20260722-full': 'assets/original/mirror-away.jpg?v=original-20260722-v4',
+              'assets/kit-home-full.webp?v=20260722-full': 'assets/original/kit-home.jpg?v=original-20260722-v4',
+              'assets/kit-away-full.webp?v=20260722-full': 'assets/original/kit-away.jpg?v=original-20260722-v4',
+              'assets/champions-badge-full.webp?v=20260722-full': 'assets/original/champions-badge.jpg?v=original-20260722-v4',
+              'assets/mirror-home-full.webp?v=20260722-full-final': 'assets/original/mirror-home.jpg?v=original-20260722-v4',
+          }
+
+          for text_file in (root / 'index.html', root / 'styles.css', root / 'app.js', root / '404.html'):
+              if not text_file.exists():
+                  continue
+              text = text_file.read_text(encoding='utf-8')
+              for incorrect in ('Melanie', 'Melanié'):
+                  text = text.replace(incorrect, 'Mélanie')
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              text_file.write_text(text, encoding='utf-8')
+
           styles = root / 'styles.css'
-          app = root / 'app.js'
-
-          html = index.read_text(encoding='utf-8')
-          for incorrect in ('Melanie', 'Melanié'):
-              html = html.replace(incorrect, 'Mélanie')
-          index.write_text(html, encoding='utf-8')
-
           css = styles.read_text(encoding='utf-8')
-          css = css.replace("assets/mirror-home.png')", "assets/mirror-home.png?v=original-20260722')")
-          css += "\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n"
+          css += '\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n'
           styles.write_text(css, encoding='utf-8')
 
+          app = root / 'app.js'
           source = app.read_text(encoding='utf-8')
           old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
           new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
           if old in source:
               app.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          print('Installed original files:')
+          for name, path in installed.items():
+              print(name, path.stat().st_size, jpeg_dimensions(path))
           PY
+
+          node --check _site/app.js
+          grep -q 'Mélanie' _site/index.html
+          grep -q 'assets/original/mirror-home.jpg?v=original-20260722-v4' _site/styles.css
+          grep -q 'assets/original/mirror-home.jpg?v=original-20260722-v4' _site/index.html
           touch _site/.nojekyll
 
       - name: Configure GitHub Pages
