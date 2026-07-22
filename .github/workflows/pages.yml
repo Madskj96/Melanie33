@@ -38,6 +38,7 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          from PIL import Image
 
           app = Path('_site/app.js')
           source = app.read_text(encoding='utf-8')
@@ -50,7 +51,8 @@ jobs:
 
           index = Path('_site/index.html')
           html = index.read_text(encoding='utf-8')
-          html = html.replace('Melanie', 'Melanié')
+          for incorrect in ('Melanie', 'Melanié'):
+              html = html.replace(incorrect, 'Mélanie')
           html = html.replace(
               '<div class="hero-topline"><span>★</span><b>Fødselsdagsgave · 2026/27</b></div>',
               '<div class="hero-topline"><span>★</span><b>Fødselsdagsgave · 2026</b></div>'
@@ -68,14 +70,38 @@ jobs:
 
           not_found = Path('_site/404.html')
           if not_found.exists():
-              not_found.write_text(
-                  not_found.read_text(encoding='utf-8').replace('Melanie', 'Melanié'),
-                  encoding='utf-8'
-              )
+              text = not_found.read_text(encoding='utf-8')
+              for incorrect in ('Melanie', 'Melanié'):
+                  text = text.replace(incorrect, 'Mélanie')
+              not_found.write_text(text, encoding='utf-8')
+
+          # Ensure the deployment contains the supplied full-resolution images,
+          # rather than the earlier reduced Base64 preview assets.
+          expected = {
+              'assets/mirror-home.png': (1093, 1438),
+              'assets/mirror-away.png': (1094, 1438),
+              'assets/kit-home.png': (1086, 1448),
+              'assets/kit-away.png': (1086, 1448),
+              'assets/champions-badge.jpg': (1125, 1393),
+          }
+          for relative, dimensions in expected.items():
+              path = Path('_site') / relative
+              if not path.exists():
+                  raise SystemExit(f'Missing original image: {relative}')
+              with Image.open(path) as image:
+                  if image.size != dimensions:
+                      raise SystemExit(
+                          f'Wrong image dimensions for {relative}: '
+                          f'{image.size}, expected {dimensions}'
+                      )
           PY
 
           node --check _site/app.js
-          grep -q 'Melanié' _site/index.html
+          grep -q 'Mélanie' _site/index.html
+          if grep -q 'Melanié' _site/index.html; then
+            echo 'Incorrect spelling is still present'
+            exit 1
+          fi
           grep -q 'Fødselsdagsgave · 2026<' _site/index.html
           if grep -q 'Superliga-mærke' _site/index.html; then
             echo 'Old Superliga text is still present'
