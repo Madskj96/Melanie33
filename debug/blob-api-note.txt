@@ -1,0 +1,1 @@
+The connector interface did not expose a file parameter, so binary images are deployed through verified Base64 payloads.
