@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -27,32 +27,83 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract supplied website ZIP
+      - name: Verify and extract supplied website
         shell: bash
         run: |
           set -euo pipefail
-          test -f Melanie33-v2-melanie-final.zip
+          echo "d7ec133e3454db325781dd1446d8d0df78773f58f548e28ddbe198ebed87e8cd  Melanie33-v2-melanie-final.zip" | sha256sum --check --strict
           rm -rf _site
           mkdir _site
           unzip -q Melanie33-v2-melanie-final.zip -d _site
           test -f _site/index.html
           test -f _site/styles.css
           test -f _site/app.js
-          touch _site/.nojekyll
 
-      - name: Verify exact source photographs
+      - name: Install byte-identical photographs with correct file types
         shell: bash
         run: |
           set -euo pipefail
           cd _site
-          echo "2f3bc3c4d81d955616e662110294ee65b19c9ff5369a5e3b3b102983c552c590  assets/mirror-home.png" > /tmp/images.sha256
-          echo "169bb7bb50ca489d029f02f2601b29802aaafd337acdf3e8943e49e52ff19e51  assets/mirror-away.png" >> /tmp/images.sha256
-          echo "169d2f6aa4376bf02eef1f61ee702d0860ef901e1b21fa0dc197badb1ad2b86a  assets/kit-home.png" >> /tmp/images.sha256
-          echo "38b089087330b828fd0f8386cc9ca849b5ca2d9aefc233e51e6c1c2c24cf1051  assets/kit-away.png" >> /tmp/images.sha256
-          echo "2529615bddc7f202e0fd09544cc99d690b95d595101fa05e333f31c7c1784284  assets/champions-badge.jpg" >> /tmp/images.sha256
-          sha256sum --check --strict /tmp/images.sha256
+
+          # The supplied .png-named files contain the exact original JPEG bytes.
+          # Copying them to .jpg changes only the filename, not one image byte.
+          cp assets/mirror-home.png assets/mirror-home.jpg
+          cp assets/mirror-away.png assets/mirror-away.jpg
+          cp assets/kit-home.png assets/kit-home.jpg
+          cp assets/kit-away.png assets/kit-away.jpg
+
+          cat > /tmp/original-images.sha256 <<'EOF'
+          2f3bc3c4d81d955616e662110294ee65b19c9ff5369a5e3b3b102983c552c590  assets/mirror-home.jpg
+          169bb7bb50ca489d029f02f2601b29802aaafd337acdf3e8943e49e52ff19e51  assets/mirror-away.jpg
+          169d2f6aa4376bf02eef1f61ee702d0860ef901e1b21fa0dc197badb1ad2b86a  assets/kit-home.jpg
+          38b089087330b828fd0f8386cc9ca849b5ca2d9aefc233e51e6c1c2c24cf1051  assets/kit-away.jpg
+          2529615bddc7f202e0fd09544cc99d690b95d595101fa05e333f31c7c1784284  assets/champions-badge.jpg
+          EOF
+          sha256sum --check --strict /tmp/original-images.sha256
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          version = "original-20260722-v7"
+          files = [Path("index.html"), Path("styles.css"), Path("app.js"), Path("404.html")]
+          replacements = {
+              "assets/mirror-home.png": f"assets/mirror-home.jpg?v={version}",
+              "assets/mirror-away.png": f"assets/mirror-away.jpg?v={version}",
+              "assets/kit-home.png": f"assets/kit-home.jpg?v={version}",
+              "assets/kit-away.png": f"assets/kit-away.jpg?v={version}",
+              "assets/champions-badge.jpg": f"assets/champions-badge.jpg?v={version}",
+          }
+
+          for path in files:
+              if not path.exists():
+                  continue
+              text = path.read_text(encoding="utf-8")
+              for incorrect in ("Melanie", "Melanié"):
+                  text = text.replace(incorrect, "Mélanie")
+              for old, new in replacements.items():
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+
+          css_path = Path("styles.css")
+          css = css_path.read_text(encoding="utf-8")
+          hero = (
+              ".hero-image{position:absolute;inset:0;"
+              f"background:url('assets/mirror-home.jpg?v={version}') 56% 34%/cover no-repeat;"
+              "transform:none;animation:none}"
+          )
+          css, count = re.subn(r"\.hero-image\{[^}]*\}", hero, css, count=1)
+          if count != 1:
+              raise SystemExit("Could not replace the hero image rule")
+          css += "\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n"
+          css_path.write_text(css, encoding="utf-8")
+          PY
+
           grep -q 'Mélanie' index.html
+          grep -q 'assets/mirror-home.jpg?v=original-20260722-v7' index.html
+          grep -q 'assets/mirror-home.jpg?v=original-20260722-v7' styles.css
           node --check app.js
+          touch .nojekyll
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
@@ -67,3 +118,48 @@ jobs:
       - name: Deploy website
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify the live website and original image bytes
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          page="${PAGE_URL%/}/"
+          mkdir -p /tmp/live-images verification
+
+          curl --fail --location --retry 12 --retry-delay 5 --retry-all-errors "${page}?verify=original-20260722-v7" -o /tmp/live-index.html
+          grep -q 'Mélanie' /tmp/live-index.html
+
+          for image in mirror-home mirror-away kit-home kit-away; do
+            curl --fail --location --retry 12 --retry-delay 5 --retry-all-errors \
+              "${page}assets/${image}.jpg?v=original-20260722-v7" \
+              -o "/tmp/live-images/${image}.jpg"
+          done
+          curl --fail --location --retry 12 --retry-delay 5 --retry-all-errors \
+            "${page}assets/champions-badge.jpg?v=original-20260722-v7" \
+            -o /tmp/live-images/champions-badge.jpg
+
+          cat > /tmp/live-images.sha256 <<'EOF'
+          2f3bc3c4d81d955616e662110294ee65b19c9ff5369a5e3b3b102983c552c590  /tmp/live-images/mirror-home.jpg
+          169bb7bb50ca489d029f02f2601b29802aaafd337acdf3e8943e49e52ff19e51  /tmp/live-images/mirror-away.jpg
+          169d2f6aa4376bf02eef1f61ee702d0860ef901e1b21fa0dc197badb1ad2b86a  /tmp/live-images/kit-home.jpg
+          38b089087330b828fd0f8386cc9ca849b5ca2d9aefc233e51e6c1c2c24cf1051  /tmp/live-images/kit-away.jpg
+          2529615bddc7f202e0fd09544cc99d690b95d595101fa05e333f31c7c1784284  /tmp/live-images/champions-badge.jpg
+          EOF
+          sha256sum --check --strict /tmp/live-images.sha256
+
+          {
+            echo "Verified live deployment: $(date -u +%FT%TZ)"
+            echo "Page: ${page}"
+            echo "Commit: ${GITHUB_SHA}"
+            echo "All five published photographs are byte-identical to the supplied source files."
+            echo
+            sha256sum /tmp/live-images/*.jpg
+          } > verification/live-original-images.txt
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add verification/live-original-images.txt
+          git commit -m "Record verified original-image deployment"
+          git push
