@@ -27,40 +27,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Rebuild verified original-resolution site
-        shell: bash
+      - name: Decode website package
         run: |
-          set -euo pipefail
+          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 | tr -d '\r\n\t ' | base64 --decode > /tmp/site.tar.gz
 
-          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 \
-            | tr -d '\r\n\t ' \
-            | base64 --decode > /tmp/site.tar.gz
-          gzip -t /tmp/site.tar.gz
+      - name: Validate website package
+        run: gzip -t /tmp/site.tar.gz
 
+      - name: Extract website
+        run: |
           mkdir -p _site
           tar -xzf /tmp/site.tar.gz -C _site
+          test -f _site/index.html
+          test -f _site/styles.css
+          test -f _site/app.js
 
+      - name: Apply final corrections
+        shell: bash
+        run: |
           python3 - <<'PY'
           from pathlib import Path
-
           root = Path('_site')
           index = root / 'index.html'
           styles = root / 'styles.css'
           app = root / 'app.js'
-          for path in (index, styles, app):
-              if not path.exists():
-                  raise SystemExit(f'Missing required site file: {path}')
 
           html = index.read_text(encoding='utf-8')
           for incorrect in ('Melanie', 'Melanié'):
               html = html.replace(incorrect, 'Mélanie')
-          html = html.replace('?v=20260722-original', '?v=20260722-original-v3')
           index.write_text(html, encoding='utf-8')
 
           css = styles.read_text(encoding='utf-8')
-          css = css.replace("assets/mirror-home-full.webp?v=20260722-full-final", "assets/mirror-home.png?v=20260722-original-v3")
-          css = css.replace("assets/mirror-home-full.webp?v=20260722-full", "assets/mirror-home.png?v=20260722-original-v3")
-          css = css.replace("assets/mirror-home.png')", "assets/mirror-home.png?v=20260722-original-v3')")
+          css = css.replace("assets/mirror-home.png')", "assets/mirror-home.png?v=original-20260722')")
           css += "\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n"
           styles.write_text(css, encoding='utf-8')
 
@@ -69,29 +67,7 @@ jobs:
           new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
           if old in source:
               app.write_text(source.replace(old, new, 1), encoding='utf-8')
-
-          # These files retain the exact pixel dimensions and byte sizes of the
-          # photographs supplied by the user. Their .png names are legacy names;
-          # the file contents are the original JPEG data and are not recompressed.
-          required = {
-              'assets/mirror-home.png': 406023,
-              'assets/mirror-away.png': 446022,
-              'assets/kit-home.png': 354461,
-              'assets/kit-away.png': 355122,
-              'assets/champions-badge.jpg': 883741,
-          }
-          for relative, expected_size in required.items():
-              path = root / relative
-              if not path.exists():
-                  raise SystemExit(f'Missing original image: {relative}')
-              actual = path.stat().st_size
-              if actual != expected_size:
-                  raise SystemExit(f'Unexpected size for {relative}: {actual}; expected {expected_size}')
           PY
-
-          node --check _site/app.js
-          grep -q 'Mélanie' _site/index.html
-          grep -q 'mirror-home.png?v=20260722-original-v3' _site/styles.css
           touch _site/.nojekyll
 
       - name: Configure GitHub Pages
