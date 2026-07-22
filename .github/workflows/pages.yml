@@ -1,8 +1,6 @@
 name: Publish birthday site
 
 on:
-  push:
-    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -28,51 +26,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat payload/part* | tr -d '\r\n ' | base64 --decode > /tmp/site.gz
+          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 \
+            | tr -d '\r\n\t ' \
+            | base64 --decode > /tmp/site.tar.gz
+          gzip -t /tmp/site.tar.gz
           mkdir -p _site
-
-          if tar -tzf /tmp/site.gz >/dev/null 2>&1; then
-            tar -xzf /tmp/site.gz -C _site
-          else
-            gunzip -c /tmp/site.gz > /tmp/site.bin
-            if unzip -t /tmp/site.bin >/dev/null 2>&1; then
-              unzip -q /tmp/site.bin -d _site
-            else
-              cp /tmp/site.bin _site/index.html
-            fi
-          fi
-
-          INDEX_FILE="$(find _site -type f -name index.html | head -n 1 || true)"
-          if [ -z "$INDEX_FILE" ]; then
-            echo "No index.html found in reconstructed package"
-            exit 1
-          fi
-
-          if [ "$INDEX_FILE" != "_site/index.html" ]; then
-            mkdir -p /tmp/site-root
-            cp -a "$(dirname "$INDEX_FILE")/." /tmp/site-root/
-            rm -rf _site
-            mv /tmp/site-root _site
-          fi
-
-          # Correct the initialization order in the packaged JavaScript. The
-          # selectors must exist before the asynchronous image loader starts.
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path("_site/app.js")
-          if path.exists():
-              source = path.read_text(encoding="utf-8")
-              old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
-              new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
-              if old in source:
-                  path.write_text(source.replace(old, new, 1), encoding="utf-8")
-                  print("Corrected app.js initialization order")
-              elif not source.startswith("const $="):
-                  raise SystemExit("Unexpected app.js structure; refusing to deploy")
-          PY
-
-          node --check _site/app.js
+          tar -xzf /tmp/site.tar.gz -C _site
+          test -f _site/index.html
           touch _site/.nojekyll
           echo "Prepared $(find _site -type f | wc -l) website files"
 
