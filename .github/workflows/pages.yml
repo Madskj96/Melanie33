@@ -31,7 +31,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 payload/part06 payload/part07 payload/part08 \
+          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 payload/part06 payload/part07 payload/part08 payload/part09 \
             | tr -d '\r\n\t ' \
             | base64 --decode > /tmp/site.tar.gz
           gzip -t /tmp/site.tar.gz
@@ -107,17 +107,17 @@ jobs:
               installed[target] = destination
 
           replacements = {
-              'assets/mirror-home.png': 'assets/original/mirror-home.jpg?v=original-20260722-v4',
-              'assets/mirror-away.png': 'assets/original/mirror-away.jpg?v=original-20260722-v4',
-              'assets/kit-home.png': 'assets/original/kit-home.jpg?v=original-20260722-v4',
-              'assets/kit-away.png': 'assets/original/kit-away.jpg?v=original-20260722-v4',
-              'assets/champions-badge.jpg': 'assets/original/champions-badge.jpg?v=original-20260722-v4',
-              'assets/mirror-home-full.webp?v=20260722-full': 'assets/original/mirror-home.jpg?v=original-20260722-v4',
-              'assets/mirror-away-full.webp?v=20260722-full': 'assets/original/mirror-away.jpg?v=original-20260722-v4',
-              'assets/kit-home-full.webp?v=20260722-full': 'assets/original/kit-home.jpg?v=original-20260722-v4',
-              'assets/kit-away-full.webp?v=20260722-full': 'assets/original/kit-away.jpg?v=original-20260722-v4',
-              'assets/champions-badge-full.webp?v=20260722-full': 'assets/original/champions-badge.jpg?v=original-20260722-v4',
-              'assets/mirror-home-full.webp?v=20260722-full-final': 'assets/original/mirror-home.jpg?v=original-20260722-v4',
+              'assets/mirror-home.png': 'assets/original/mirror-home.jpg?v=original-20260722-v5',
+              'assets/mirror-away.png': 'assets/original/mirror-away.jpg?v=original-20260722-v5',
+              'assets/kit-home.png': 'assets/original/kit-home.jpg?v=original-20260722-v5',
+              'assets/kit-away.png': 'assets/original/kit-away.jpg?v=original-20260722-v5',
+              'assets/champions-badge.jpg': 'assets/original/champions-badge.jpg?v=original-20260722-v5',
+              'assets/mirror-home-full.webp?v=20260722-full': 'assets/original/mirror-home.jpg?v=original-20260722-v5',
+              'assets/mirror-away-full.webp?v=20260722-full': 'assets/original/mirror-away.jpg?v=original-20260722-v5',
+              'assets/kit-home-full.webp?v=20260722-full': 'assets/original/kit-home.jpg?v=original-20260722-v5',
+              'assets/kit-away-full.webp?v=20260722-full': 'assets/original/kit-away.jpg?v=original-20260722-v5',
+              'assets/champions-badge-full.webp?v=20260722-full': 'assets/original/champions-badge.jpg?v=original-20260722-v5',
+              'assets/mirror-home-full.webp?v=20260722-full-final': 'assets/original/mirror-home.jpg?v=original-20260722-v5',
           }
 
           for text_file in (root / 'index.html', root / 'styles.css', root / 'app.js', root / '404.html'):
@@ -149,8 +149,8 @@ jobs:
 
           node --check _site/app.js
           grep -q 'Mélanie' _site/index.html
-          grep -q 'assets/original/mirror-home.jpg?v=original-20260722-v4' _site/styles.css
-          grep -q 'assets/original/mirror-home.jpg?v=original-20260722-v4' _site/index.html
+          grep -q 'assets/original/mirror-home.jpg?v=original-20260722-v5' _site/styles.css
+          grep -q 'assets/original/mirror-home.jpg?v=original-20260722-v5' _site/index.html
           touch _site/.nojekyll
 
       - name: Configure GitHub Pages
