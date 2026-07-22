@@ -1,58 +1,129 @@
-name: Inspect full-resolution package
+name: Publish birthday site
 
 on:
   push:
     branches: ["main"]
     paths:
       - ".github/workflows/pages.yml"
+      - "payload/**"
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
-  inspect:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Inspect uploaded package parts
+      - name: Rebuild site with original-resolution photographs
         shell: bash
         run: |
-          set -u
-          mkdir -p diagnostics
-          {
-            echo "Generated $(date -u +%FT%TZ)"
-            echo
-            echo "Files:"
-            for file in payload-fullres/part*; do
-              wc -c "$file"
-              sha256sum "$file"
-            done
-            echo
-            echo "Combination tests:"
-            for last in 05 06 07; do
-              output="/tmp/site-${last}.tar.gz"
-              files=()
-              for number in $(seq -w 0 $((10#$last))); do
-                files+=("payload-fullres/part${number}")
-              done
-              if cat "${files[@]}" | tr -d '\r\n\t ' | base64 --decode > "$output" 2>/tmp/decode-error && gzip -t "$output" 2>/tmp/gzip-error; then
-                echo "part00..part${last}: VALID $(wc -c < "$output") bytes $(sha256sum "$output" | cut -d' ' -f1)"
-                tar -tzf "$output" | sed 's/^/  /' | head -30
-              else
-                echo "part00..part${last}: INVALID"
-                sed 's/^/  decode: /' /tmp/decode-error 2>/dev/null || true
-                sed 's/^/  gzip: /' /tmp/gzip-error 2>/dev/null || true
-              fi
-            done
-          } > diagnostics/fullres.txt
+          set -euo pipefail
 
-      - name: Save diagnostics
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add diagnostics/fullres.txt
-          git commit -m "Record full-resolution package diagnostics" || exit 0
-          git push
+          cat payload/part00 payload/part01 payload/part02 payload/part03 payload/part04 payload/part05 \
+            | tr -d '\r\n\t ' \
+            | base64 --decode > /tmp/site.tar.gz
+          gzip -t /tmp/site.tar.gz
+
+          mkdir -p _site
+          tar -xzf /tmp/site.tar.gz -C _site
+          test -f _site/index.html
+          test -f _site/styles.css
+          test -f _site/app.js
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('_site')
+          index = root / 'index.html'
+          styles = root / 'styles.css'
+          app = root / 'app.js'
+
+          html = index.read_text(encoding='utf-8')
+          for incorrect in ('Melanie', 'Melanié'):
+              html = html.replace(incorrect, 'Mélanie')
+
+          replacements = {
+              'assets/mirror-home.png': 'assets/mirror-home.jpg?v=20260722-original-v2',
+              'assets/mirror-away.png': 'assets/mirror-away.jpg?v=20260722-original-v2',
+              'assets/kit-home.png': 'assets/kit-home.jpg?v=20260722-original-v2',
+              'assets/kit-away.png': 'assets/kit-away.jpg?v=20260722-original-v2',
+              'assets/mirror-home-full.webp?v=20260722-full': 'assets/mirror-home.jpg?v=20260722-original-v2',
+              'assets/mirror-away-full.webp?v=20260722-full': 'assets/mirror-away.jpg?v=20260722-original-v2',
+              'assets/kit-home-full.webp?v=20260722-full': 'assets/kit-home.jpg?v=20260722-original-v2',
+              'assets/kit-away-full.webp?v=20260722-full': 'assets/kit-away.jpg?v=20260722-original-v2',
+              'assets/champions-badge-full.webp?v=20260722-full': 'assets/champions-badge.jpg?v=20260722-original-v2',
+          }
+          for old, new in replacements.items():
+              html = html.replace(old, new)
+          html = html.replace('type="image/webp"', 'type="image/jpeg"')
+          index.write_text(html, encoding='utf-8')
+
+          css = styles.read_text(encoding='utf-8')
+          for old in (
+              "assets/mirror-home.png",
+              "assets/mirror-home-full.webp?v=20260722-full",
+              "assets/mirror-home-full.webp?v=20260722-full-final",
+          ):
+              css = css.replace(old, "assets/mirror-home.jpg?v=20260722-original-v2")
+          css += "\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n"
+          styles.write_text(css, encoding='utf-8')
+
+          source = app.read_text(encoding='utf-8')
+          old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
+          new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
+          if old in source:
+              source = source.replace(old, new, 1)
+              app.write_text(source, encoding='utf-8')
+
+          required = {
+              'assets/mirror-home.jpg': 406023,
+              'assets/mirror-away.jpg': 446022,
+              'assets/kit-home.jpg': 354461,
+              'assets/kit-away.jpg': 355122,
+              'assets/champions-badge.jpg': 883741,
+          }
+          for relative, expected_size in required.items():
+              path = root / relative
+              if not path.exists():
+                  raise SystemExit(f'Missing original image: {relative}')
+              actual = path.stat().st_size
+              if actual != expected_size:
+                  raise SystemExit(f'Unexpected size for {relative}: {actual}; expected {expected_size}')
+          PY
+
+          node --check _site/app.js
+          grep -q 'Mélanie' _site/index.html
+          grep -q 'mirror-home.jpg?v=20260722-original-v2' _site/styles.css
+          grep -q 'mirror-home.jpg?v=20260722-original-v2' _site/index.html
+          if grep -q 'mirror-home.png' _site/styles.css; then
+            echo 'Obsolete low-quality hero reference remains'
+            exit 1
+          fi
+          touch _site/.nojekyll
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy site
+        id: deployment
+        uses: actions/deploy-pages@v4
