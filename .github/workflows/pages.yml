@@ -1,6 +1,8 @@
 name: Publish birthday site
 
 on:
+  push:
+    branches: ["main"]
   workflow_dispatch:
 
 permissions:
@@ -33,6 +35,20 @@ jobs:
           mkdir -p _site
           tar -xzf /tmp/site.tar.gz -C _site
           test -f _site/index.html
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('_site/app.js')
+          source = path.read_text(encoding='utf-8')
+          old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
+          new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
+          if old in source:
+              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          elif not source.startswith('const $='):
+              raise SystemExit('Unexpected app.js initialization order')
+          PY
+
+          node --check _site/app.js
           touch _site/.nojekyll
           echo "Prepared $(find _site -type f | wc -l) website files"
 
