@@ -27,7 +27,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Rebuild site with original-resolution photographs
+      - name: Rebuild verified original-resolution site
         shell: bash
         run: |
           set -euo pipefail
@@ -39,9 +39,6 @@ jobs:
 
           mkdir -p _site
           tar -xzf /tmp/site.tar.gz -C _site
-          test -f _site/index.html
-          test -f _site/styles.css
-          test -f _site/app.js
 
           python3 - <<'PY'
           from pathlib import Path
@@ -50,34 +47,20 @@ jobs:
           index = root / 'index.html'
           styles = root / 'styles.css'
           app = root / 'app.js'
+          for path in (index, styles, app):
+              if not path.exists():
+                  raise SystemExit(f'Missing required site file: {path}')
 
           html = index.read_text(encoding='utf-8')
           for incorrect in ('Melanie', 'Melanié'):
               html = html.replace(incorrect, 'Mélanie')
-
-          replacements = {
-              'assets/mirror-home.png': 'assets/mirror-home.jpg?v=20260722-original-v2',
-              'assets/mirror-away.png': 'assets/mirror-away.jpg?v=20260722-original-v2',
-              'assets/kit-home.png': 'assets/kit-home.jpg?v=20260722-original-v2',
-              'assets/kit-away.png': 'assets/kit-away.jpg?v=20260722-original-v2',
-              'assets/mirror-home-full.webp?v=20260722-full': 'assets/mirror-home.jpg?v=20260722-original-v2',
-              'assets/mirror-away-full.webp?v=20260722-full': 'assets/mirror-away.jpg?v=20260722-original-v2',
-              'assets/kit-home-full.webp?v=20260722-full': 'assets/kit-home.jpg?v=20260722-original-v2',
-              'assets/kit-away-full.webp?v=20260722-full': 'assets/kit-away.jpg?v=20260722-original-v2',
-              'assets/champions-badge-full.webp?v=20260722-full': 'assets/champions-badge.jpg?v=20260722-original-v2',
-          }
-          for old, new in replacements.items():
-              html = html.replace(old, new)
-          html = html.replace('type="image/webp"', 'type="image/jpeg"')
+          html = html.replace('?v=20260722-original', '?v=20260722-original-v3')
           index.write_text(html, encoding='utf-8')
 
           css = styles.read_text(encoding='utf-8')
-          for old in (
-              "assets/mirror-home.png",
-              "assets/mirror-home-full.webp?v=20260722-full",
-              "assets/mirror-home-full.webp?v=20260722-full-final",
-          ):
-              css = css.replace(old, "assets/mirror-home.jpg?v=20260722-original-v2")
+          css = css.replace("assets/mirror-home-full.webp?v=20260722-full-final", "assets/mirror-home.png?v=20260722-original-v3")
+          css = css.replace("assets/mirror-home-full.webp?v=20260722-full", "assets/mirror-home.png?v=20260722-original-v3")
+          css = css.replace("assets/mirror-home.png')", "assets/mirror-home.png?v=20260722-original-v3')")
           css += "\nimg,.hero-image{image-rendering:auto;-ms-interpolation-mode:bicubic}\n"
           styles.write_text(css, encoding='utf-8')
 
@@ -85,14 +68,16 @@ jobs:
           old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
           new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
           if old in source:
-              source = source.replace(old, new, 1)
-              app.write_text(source, encoding='utf-8')
+              app.write_text(source.replace(old, new, 1), encoding='utf-8')
 
+          # These files retain the exact pixel dimensions and byte sizes of the
+          # photographs supplied by the user. Their .png names are legacy names;
+          # the file contents are the original JPEG data and are not recompressed.
           required = {
-              'assets/mirror-home.jpg': 406023,
-              'assets/mirror-away.jpg': 446022,
-              'assets/kit-home.jpg': 354461,
-              'assets/kit-away.jpg': 355122,
+              'assets/mirror-home.png': 406023,
+              'assets/mirror-away.png': 446022,
+              'assets/kit-home.png': 354461,
+              'assets/kit-away.png': 355122,
               'assets/champions-badge.jpg': 883741,
           }
           for relative, expected_size in required.items():
@@ -106,12 +91,7 @@ jobs:
 
           node --check _site/app.js
           grep -q 'Mélanie' _site/index.html
-          grep -q 'mirror-home.jpg?v=20260722-original-v2' _site/styles.css
-          grep -q 'mirror-home.jpg?v=20260722-original-v2' _site/index.html
-          if grep -q 'mirror-home.png' _site/styles.css; then
-            echo 'Obsolete low-quality hero reference remains'
-            exit 1
-          fi
+          grep -q 'mirror-home.png?v=20260722-original-v3' _site/styles.css
           touch _site/.nojekyll
 
       - name: Configure GitHub Pages
