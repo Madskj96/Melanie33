@@ -24,7 +24,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Rebuild website package
+      - name: Rebuild and update website
         shell: bash
         run: |
           set -euo pipefail
@@ -38,17 +38,49 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('_site/app.js')
-          source = path.read_text(encoding='utf-8')
+
+          app = Path('_site/app.js')
+          source = app.read_text(encoding='utf-8')
           old = "loadAssets();\nconst $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];"
           new = "const $=(s,r=document)=>r.querySelector(s);const $$=(s,r=document)=>[...r.querySelectorAll(s)];\nloadAssets();"
           if old in source:
-              path.write_text(source.replace(old, new, 1), encoding='utf-8')
+              app.write_text(source.replace(old, new, 1), encoding='utf-8')
           elif not source.startswith('const $='):
               raise SystemExit('Unexpected app.js initialization order')
+
+          index = Path('_site/index.html')
+          html = index.read_text(encoding='utf-8')
+          html = html.replace('Melanie', 'Melanié')
+          html = html.replace(
+              '<div class="hero-topline"><span>★</span><b>Fødselsdagsgave · 2026/27</b></div>',
+              '<div class="hero-topline"><span>★</span><b>Fødselsdagsgave · 2026</b></div>'
+          )
+          html = html.replace(
+              '<div class="hero-number" aria-hidden="true">26/27</div>',
+              '<div class="hero-number" aria-hidden="true">2026</div>'
+          )
+          html = html.replace(
+              "Du kan også få DBU's officielle Danmarksmester-badge sammen med Superliga-mærket. En lille detalje med meget stor betydning.",
+              "Du kan også få DBU's officielle Danmarksmester-badge på trøjen. En lille detalje med meget stor betydning."
+          )
+          html = html.replace('DM-badge + Superliga-mærke', 'Kun Danmarksmester-badge')
+          index.write_text(html, encoding='utf-8')
+
+          not_found = Path('_site/404.html')
+          if not_found.exists():
+              not_found.write_text(
+                  not_found.read_text(encoding='utf-8').replace('Melanie', 'Melanié'),
+                  encoding='utf-8'
+              )
           PY
 
           node --check _site/app.js
+          grep -q 'Melanié' _site/index.html
+          grep -q 'Fødselsdagsgave · 2026<' _site/index.html
+          if grep -q 'Superliga-mærke' _site/index.html; then
+            echo 'Old Superliga text is still present'
+            exit 1
+          fi
           touch _site/.nojekyll
           echo "Prepared $(find _site -type f | wc -l) website files"
 
