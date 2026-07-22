@@ -1,0 +1,24 @@
+Generated 2026-07-22T16:42:52Z
+
+Files:
+19999 payload-fullres/part00
+3868f244a89dc8661628867043ecb597b11bec3b93a3b6bac174523e6dacab8a  payload-fullres/part00
+19999 payload-fullres/part01
+237706f9c308200dbab37fa8abe64c5b94277cdace8c562eabb23c4a5fe54fd4  payload-fullres/part01
+19999 payload-fullres/part02
+04e59f6cc4cf52be913682d2dc9bddffb88e19ea9f72d95df994d56192569a70  payload-fullres/part02
+19999 payload-fullres/part03
+b394ab01df1a12eabaf286a8373c62fc78b1cf8b910ae131960d7524e8e0cbe6  payload-fullres/part03
+19999 payload-fullres/part04
+5f5f26c745552d20600a32a05c1929af11ef47ab3859602703fd3b3224e497ea  payload-fullres/part04
+19999 payload-fullres/part05
+8e2069a0f15119f40ea10b5c70cf9a6fcf774de04f8b38c8ca1e18d13b557c3c  payload-fullres/part05
+19998 payload-fullres/part06
+bcdc10960cd7724d690706216b45693d156a307a3beede3f382b8efd484a2d44  payload-fullres/part06
+20023 payload-fullres/part07
+c67e362c4ae124e68555da63e47b12bc7e6a9bdad4295b4894739f16b9474585  payload-fullres/part07
+
+Combination tests:
+part00..part05: INVALID
+part00..part06: INVALID
+part00..part07: INVALID
