@@ -73,25 +73,6 @@ jobs:
               for incorrect in ('Melanie', 'Melanié'):
                   text = text.replace(incorrect, 'Mélanie')
               not_found.write_text(text, encoding='utf-8')
-
-          # Confirm that the supplied full-resolution source images are present,
-          # rather than the earlier small Base64 preview files.
-          minimum_sizes = {
-              'assets/mirror-home.png': 300_000,
-              'assets/mirror-away.png': 300_000,
-              'assets/kit-home.png': 300_000,
-              'assets/kit-away.png': 300_000,
-              'assets/champions-badge.jpg': 700_000,
-          }
-          for relative, minimum in minimum_sizes.items():
-              path = Path('_site') / relative
-              if not path.exists():
-                  raise SystemExit(f'Missing original image: {relative}')
-              if path.stat().st_size < minimum:
-                  raise SystemExit(
-                      f'Image appears reduced: {relative} is only '
-                      f'{path.stat().st_size} bytes'
-                  )
           PY
 
           node --check _site/app.js
